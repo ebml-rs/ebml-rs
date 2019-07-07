@@ -1,0 +1,15 @@
+[package]
+name = "ebml-rs"
+version = "0.0.0"
+authors = ["Legokichi Duckscallion <legokichi@gmail.com>"]
+edition = "2018"
+repository = "https://github.com/ebml-rs/ebml-rs"
+keywords = ["webm", "ebml"]
+license-file = "LICENSE"
+readme = "README.md"
+description = "ebml parser."
+documentation = "https://github.com/ebml-rs/ebml-rs"
+
+
+
+[dependencies]
