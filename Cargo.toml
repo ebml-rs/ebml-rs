@@ -1,5 +1,5 @@
 [package]
-name = "ebml-rs"
+name = "ebml"
 version = "0.0.0"
 authors = ["Legokichi Duckscallion <legokichi@gmail.com>"]
 edition = "2018"
