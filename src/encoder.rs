@@ -1,8 +1,3 @@
+pub struct Encoder {}
 
-pub struct Encoder {
-
-}
-
-impl Encoder {
-
-}
+impl Encoder {}

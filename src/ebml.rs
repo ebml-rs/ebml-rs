@@ -1,123 +1,86 @@
-
-pub enum EBMLElementBuffer {
-    MasterElement(MasterElement),
-    ChildElement(ChildElement, Vec<u8>),
-}
-pub enum EBMLElementDetail {
-    MasterElement(MasterElement, ElementDetail),
-    ChildElement(ChildElement, Vec<u8>, ElementDetail),
-}
-
-pub enum EbmlElement {
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
+pub enum Element {
     // m
-    MasterElement(MasterElement),
-    ChildElement(ChildElement),
+    MasterElement(MasterElement, Detail),
+    // u i f s 8 b d
+    ChildElement(ChildElement, Detail),
 }
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
+pub enum MasterElement {
+    MasterStartElement { ebml_id: i64, unknown_size: bool },
+    MasterEndElement { ebml_id: i64 },
+}
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
 pub enum ChildElement {
     // u
-    UnsignedIntegerElement(UnsignedIntegerElement),
+    UnsignedIntegerElement {
+        ebml_id: i64,
+        value: u64,
+    },
     // i
-    IntegerElement(IntegerElement),
+    IntegerElement {
+        ebml_id: i64,
+        value: i64,
+    },
     // f
-    FloatElement(FloatElement),
+    FloatElement {
+        ebml_id: i64,
+        value: f64,
+    },
     // s
-    StringElement(StringElement),
+    StringElement {
+        ebml_id: i64,
+        value: Vec<u8>,
+    },
     // 8
-    Utf8StringElement(Utf8StringElement),
+    Utf8Element {
+        ebml_id: i64,
+        value: String,
+    },
     // b
-    BinaryElement(BinaryElement),
+    BinaryElement {
+        ebml_id: i64,
+        value: Vec<u8>,
+    },
     // d
-    DateElement(DateElement),
-}
-pub struct MasterElement {
-    pub name: String,
-    pub isEnd: boolean,
-    pub unknownSize: boolean,
-}
-struct UnsignedIntegerElement {
-    pub name: String,
-    pub value: u64,
-}
-pub struct IntegerElement {
-    pub name: String,
-    pub value: i64,
-}
-pub struct FloatElement {
-    pub name: String,
-    pub value: i64,
-}
-pub struct StringElement{
-    pub name: String,
-    pub value: Vec<u8>,
-}
-pub struct Utf8StringElement{
-    pub name: String,
-    pub value: String,
-}
-pub struct BufferElement{
-    pub name: String,
-    pub value: Vec<u8>,
-}
-pub struct DateElement{
-    pub name: String,
-    // signed 8 octets integer in nanoseconds with 0 indicating the precise
-    // beginning of the millennium (at 2001-01-01T00:00:00,000000000 UTC)
-    pub value: i64,
-}
-pub struct ElementDetail {
-    pub schema: Schema,
-  /**
-   * hex EBML ID
-   */
-    pub EBML_ID: u64,
-  /**
-   * The level within an EBML tree that the element may occur at. 
-   * + is for a recursive level (can be its own child). 
-   * g: global element (can be found at any level)
-   */
-    pub level: i64,
-  /**
-   * このタグのバッファ全体における開始オフセット位置
-   */
-    pub tagStart: i64,
-  /**
-   * このタグのバッファ全体における終了オフセット位置
-   */
-    pub tagEnd: i64,
-  /**
-   * size vint start
-   */
-    pub sizeStart: i64,
-  /**
-   * size vint end
-   */
-    pub sizeEnd: i64
-  /**
-   * 要素の中身の開始位置
-   */
-    pub dataStart: i64,
-  /**
-   * 要素の中身の終了位置
-   */
-    pub dataEnd: i64,
-  /**
-   * dataEnd - dataStart
-   */
-    pub dataSize: i64,
+    DateElement {
+        ebml_id: i64,
+        // signed 8 octets integer in nanoseconds with 0 indicating the precise
+        // beginning of the millennium (at 2001-01-01T00:00:00,000000000 UTC)
+        value: i64,
+    },
 }
 
-pub struct SimpleBlock {
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Detail {
+    // hex EBML ID
+    pub ebml_id: i64,
+    // The level within an EBML tree that the element may occur at.
+    // + is for a recursive level (can be its own child).
+    // g: global element (can be found at any level)
+    pub level: i64,
+    // m u i f s 8 b d
+    pub r#type: char,
+    pub tag_start: usize,
+    pub size_start: usize,
+    pub content_start: usize,
+    pub content_size: i64,
+}
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
+struct SimpleBlock {
     pub discardable: bool,
     pub frames: Vec<Vec<u8>>,
     pub invisible: bool,
     pub keyframe: bool,
     pub timecode: i64,
-    pub trackNumber: i64,
+    pub track_number: i64,
 }
-
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
 pub struct Schema {
     pub name: String,
+    pub cppname: Option<String>,
     pub level: i64,
-    pub type: String,
+    pub multiple: Option<String>,
+    pub r#type: char,
     pub description: String,
 }
