@@ -1,40 +1,40 @@
-use crate::decoder::Decoder;
 use crate::ebml;
-use crate::encoder::Encoder;
 use serde::Deserialize;
 use std::collections::HashMap;
 
 const DEFAULT_SCHEMA_JSON: &str = include_str!("../schema.json");
 
-impl Default for Decoder<Dict> {
+pub trait SchemaDict<'a> {
+    type Item: Schema;
+    fn get(&'a self, ebml_id: EbmlId) -> Option<&'a Self::Item>;
+}
+
+pub trait Schema {
+    fn name(&self) -> &str;
+    fn r#type(&self) -> char;
+    fn level(&self) -> i64;
+}
+
+#[derive(Deserialize, Debug, Clone, PartialEq)]
+pub struct DefaultSchema(HashMap<String, Entry>);
+
+impl Default for DefaultSchema {
     fn default() -> Self {
         let schema_str = DEFAULT_SCHEMA_JSON;
-        let o = serde_json::from_str(schema_str).unwrap();
-        Self::new(o)
+        let o = serde_json::from_str::<Self>(schema_str).unwrap();
+        o
     }
 }
 
-impl Default for Encoder<Dict> {
-    fn default() -> Self {
-        let schema_str = DEFAULT_SCHEMA_JSON;
-        let o = serde_json::from_str(schema_str).unwrap();
-        Self::new(o)
-    }
-}
-
-impl ebml::SchemaDict for Dict {
-    fn get(&self, ebml_id: ebml::EbmlId) -> Option<ebml::Schema> {
-        self.0
-            .get(&format!("{}", ebml_id).to_string())
-            .map(Into::into)
+impl<'a> ebml::SchemaDict<'a> for DefaultSchema {
+    type Item = DefaultSchemaEntry;
+    fn get(&'a self, ebml_id: ebml::EbmlId) -> Option<&'a Self::Item> {
+        self.0.get(&format!("{}", ebml_id)).map(Into::into)
     }
 }
 
 #[derive(Deserialize, Debug, Clone, PartialEq)]
-pub struct Dict(HashMap<String, Entry>);
-
-#[derive(Deserialize, Debug, Clone, PartialEq)]
-pub struct Entry {
+pub struct DefaultSchemaEntry {
     pub name: String,
     pub r#type: String,
     pub level: i64,
@@ -48,11 +48,14 @@ pub struct Entry {
     pub default: Option<serde_json::Value>,
 }
 
-impl From<&Entry> for ebml::Schema {
-    fn from(o: &Entry) -> ebml::Schema {
-        ebml::Schema {
-            level: o.level,
-            r#type: o.r#type.chars().next().unwrap(),
-        }
+impl ebml::Schema for DefaultSchemaEntry {
+    fn name(&self) -> &str {
+        &self.name
+    }
+    fn r#type(&self) -> char {
+        self.r#type.chars().next().unwrap()
+    }
+    fn level(&self) -> i64 {
+        self.level
     }
 }

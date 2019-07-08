@@ -18,8 +18,9 @@ fn test_decoder_encoder() {
     env_logger::try_init().ok();
     for path in WEBM_FILE_LIST {
         info!("start: {}", path);
-        let mut decoder = ebml::Decoder::default();
-        let mut encoder = ebml::Encoder::default();
+        let schema = ebml::schema::DefaultSchema::default();
+        let mut decoder = ebml::Decoder::new(&schema);
+        let mut encoder = ebml::Encoder::new(&schema);
         let mut mkv = std::fs::File::open(path).unwrap();
         let mut buffer = vec![];
         use std::io::Read;

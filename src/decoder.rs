@@ -6,9 +6,9 @@ use log_derive::{logfn, logfn_inputs};
 
 pub trait ReadEbmlExt: std::io::Read {
     #[logfn(ok = "TRACE", err = "ERROR")]
-    fn read_ebml_to_end(
+    fn read_ebml_to_end<'a, D: ebml::SchemaDict<'a>>(
         &mut self,
-        schema: impl ebml::SchemaDict,
+        schema: &'a D,
     ) -> Result<Vec<ebml::ElementDetail>, DecodeError> {
         let mut decoder = Decoder::new(schema);
         let mut buf = vec![];
@@ -22,9 +22,9 @@ impl<R: std::io::Read + ?Sized> ReadEbmlExt for R {}
 
 pub trait BufReadEbmlExt: std::io::BufRead {
     #[logfn(ok = "TRACE", err = "ERROR")]
-    fn read(
+    fn read<'a, D: ebml::SchemaDict<'a>>(
         &mut self,
-        schema: impl ebml::SchemaDict,
+        schema: &'a D,
     ) -> Result<Vec<ebml::ElementDetail>, DecodeError> {
         let mut decoder = Decoder::new(schema);
         let mut buf = vec![];
@@ -82,8 +82,8 @@ enum State {
     Content,
 }
 
-pub struct Decoder<D> {
-    schema: D,
+pub struct Decoder<'a, D: ebml::SchemaDict<'a>> {
+    schema: &'a D,
     state: State,
     buffer: Vec<u8>,
     cursor: usize,
@@ -92,8 +92,8 @@ pub struct Decoder<D> {
     queue: Vec<ebml::ElementDetail>,
 }
 
-impl<D: ebml::SchemaDict> Decoder<D> {
-    pub fn new(schema: D) -> Self {
+impl<'a, D: ebml::SchemaDict<'a>> Decoder<'a, D> {
+    pub fn new(schema: &'a D) -> Self {
         Self {
             schema,
             state: State::Tag,
@@ -176,9 +176,10 @@ impl<D: ebml::SchemaDict> Decoder<D> {
             .schema
             .get(ebml_id)
             .ok_or_else(|| DecodeError::UnknownEbmlId(ebml_id))?;
+        use crate::ebml::Schema;
         let pos = ebml::ElementPosition {
-            level: schema.level,
-            r#type: schema.r#type,
+            level: schema.level(),
+            r#type: schema.r#type(),
             ebml_id,
             tag_start,
             size_start,

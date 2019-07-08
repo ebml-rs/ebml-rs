@@ -199,18 +199,6 @@ pub struct SimpleBlock {
     pub track_number: i64,
 }
 
-pub trait SchemaDict {
-    fn get(&self, ebml_id: EbmlId) -> Option<Schema>;
-}
-
-#[derive(
-    Arbitrary, Debug, Clone, PartialEq, PartialOrd, Copy, Eq, Ord, Hash, Serialize, Deserialize,
-)]
-pub struct Schema {
-    pub r#type: char,
-    pub level: i64,
-}
-
 impl From<ElementDetail> for Element {
     fn from(o: ElementDetail) -> Self {
         match o {
@@ -219,19 +207,7 @@ impl From<ElementDetail> for Element {
         }
     }
 }
-/*
-impl From<(MasterStartElement, Vec<Tree>)> for Tree {
-    fn from(o: (MasterStartElement, Vec<Tree>)) -> Tree {
-        Tree::MasterElement(o)
-    }
-}
 
-impl From<(ChildElement, Vec<u8>)> for Tree {
-    fn from(o: (ChildElement, Vec<u8>)) -> Tree {
-        Tree::ChildElement(o)
-    }
-}
-*/
 macro_rules! master_defs {
     ($ty:ident) => {
         impl From<$ty> for Element {

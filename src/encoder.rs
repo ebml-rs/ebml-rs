@@ -31,8 +31,8 @@ impl From<EncodeTagError> for EncodeError {
     }
 }
 
-pub struct Encoder<D> {
-    schema: D,
+pub struct Encoder<'a, D: ebml::SchemaDict<'a>> {
+    schema: &'a D,
     stack: Vec<(ebml::MasterStartElement, Vec<u8>)>,
     // c
     // c
@@ -49,8 +49,8 @@ pub struct Encoder<D> {
     queue: Vec<u8>,
 }
 
-impl<D: ebml::SchemaDict> Encoder<D> {
-    pub fn new(schema: D) -> Self {
+impl<'a, D: ebml::SchemaDict<'a>> Encoder<'a, D> {
+    pub fn new(schema: &'a D) -> Self {
         Self {
             schema,
             stack: vec![],
@@ -97,10 +97,12 @@ impl<D: ebml::SchemaDict> Encoder<D> {
     }
     #[logfn(ok = "TRACE", err = "ERROR")]
     fn start_tag(&mut self, o: ebml::MasterStartElement) -> Result<(), EncodeError> {
-        let _schema = self
+        let schema = self
             .schema
             .get(o.ebml_id)
             .ok_or_else(|| EncodeError::UnknownEbmlId(o.ebml_id))?;
+        use crate::ebml::Schema;
+        let _level = schema.level();
         if o.unknown_size {
             // 不定長の場合はスタックに積まずに即時バッファに書き込む
             let mut data = encode_master_tag(o, vec![])?;
