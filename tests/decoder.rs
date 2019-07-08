@@ -1,3 +1,4 @@
+use insta::assert_debug_snapshot_matches;
 use log::{debug, info};
 
 const WEBM_FILE_LIST: &'static [&'static str] = &[
@@ -23,6 +24,17 @@ fn test_decoder() {
         use std::io::Read;
         mkv.read_to_end(&mut buffer).unwrap();
         let elms = decoder.decode(buffer).unwrap();
+        assert_debug_snapshot_matches!(
+            format!(
+                "{}.snapshot",
+                std::path::Path::new(path)
+                    .file_name()
+                    .unwrap()
+                    .to_str()
+                    .unwrap()
+            ),
+            elms
+        );
         debug!("{:?}", elms);
         // assert_eq!(elms.len(), 2766);
     }

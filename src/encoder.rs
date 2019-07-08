@@ -3,9 +3,9 @@ use crate::ebml;
 use crate::vint::{write_vint, UnrepresentableValueError, WriteVintExt};
 use byteorder::{BigEndian, WriteBytesExt};
 use err_derive::Error;
+use log::debug;
 use log_derive::{logfn, logfn_inputs};
 use std::convert::TryFrom;
-use log::debug;
 
 #[derive(Debug, Error)]
 pub enum EncodeError {
