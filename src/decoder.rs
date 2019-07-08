@@ -232,26 +232,28 @@ impl<D: ebml::SchemaDict> Decoder<D> {
         let current_pos = self.stack.last().unwrap();
         // master element は子要素を持つので生データはない
         if current_pos.r#type == 'm' {
-            let elm = ebml::ElementDetail::MasterElement(
+            let elm = (
                 ebml::MasterStartElement {
                     ebml_id: current_pos.ebml_id,
                     unknown_size: current_pos.content_size == -1,
-                }
-                .into(),
+                },
                 *current_pos,
-            );
+            )
+                .into();
             self.queue.push(elm);
             self.state = State::Tag;
             // この Mastert Element は空要素か
             if current_pos.content_size == 0 {
                 // 即座に終了タグを追加
-                self.queue.push(ebml::ElementDetail::MasterElement(
-                    ebml::MasterEndElement {
-                        ebml_id: current_pos.ebml_id,
-                    }
-                    .into(),
-                    *current_pos,
-                ));
+                self.queue.push(
+                    (
+                        ebml::MasterEndElement {
+                            ebml_id: current_pos.ebml_id,
+                        },
+                        *current_pos,
+                    )
+                        .into(),
+                );
                 // スタックからこのタグを捨てる
                 self.stack.pop();
             }
@@ -280,8 +282,7 @@ impl<D: ebml::SchemaDict> Decoder<D> {
             std::io::Cursor::new(content),
             content_size,
         )?;
-        self.queue
-            .push(ebml::ElementDetail::ChildElement(child_elm, *current_pos));
+        self.queue.push((child_elm, *current_pos).into());
 
         // ポインタを進める
         self.total += content_size;
@@ -307,13 +308,15 @@ impl<D: ebml::SchemaDict> Decoder<D> {
                 // throw new Error("parent element is not master element");
                 unreachable!();
             }
-            self.queue.push(ebml::ElementDetail::MasterElement(
-                ebml::MasterEndElement {
-                    ebml_id: parent_pos.ebml_id,
-                }
-                .into(),
-                *parent_pos,
-            ));
+            self.queue.push(
+                (
+                    ebml::MasterEndElement {
+                        ebml_id: parent_pos.ebml_id,
+                    },
+                    *parent_pos,
+                )
+                    .into(),
+            );
             // スタックからこのタグを捨てる
             self.stack.pop();
         }

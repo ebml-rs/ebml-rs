@@ -6,9 +6,8 @@ use proptest::prelude::*;
 use proptest_derive::Arbitrary;
 use serde::{Deserialize, Serialize};
 
-#[derive(Derivative)]
+#[derive(Derivative, Arbitrary, Clone, PartialEq, PartialOrd, Serialize, Deserialize)]
 #[derivative(Debug)]
-#[derive(Arbitrary, Clone, PartialEq, PartialOrd, Serialize, Deserialize)]
 pub enum Element {
     // m
     #[derivative(Debug = "transparent")]
@@ -19,24 +18,29 @@ pub enum Element {
 }
 
 // #[derive(Arbitrary)]
-#[derive(Debug, Clone, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[derive(Derivative, Clone, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[derivative(Debug)]
 pub enum ElementDetail {
     // m
-    MasterElement(MasterElement, ElementPosition),
+    #[derivative(Debug = "transparent")]
+    MasterElement((MasterElement, ElementPosition)),
     // u i f s 8 b d
-    ChildElement(ChildElement, ElementPosition),
+    #[derivative(Debug = "transparent")]
+    ChildElement((ChildElement, ElementPosition)),
 }
 
 // #[derive(Arbitrary)]
-#[derive(Debug, Clone, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[derive(Derivative, Clone, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[derivative(Debug)]
 pub(crate) enum Tree {
-    MasterElement(MasterElement, Vec<Tree>),
-    ChildElenent(ChildElement),
+    #[derivative(Debug = "transparent")]
+    MasterElement((MasterStartElement, Vec<Tree>)),
+    #[derivative(Debug = "transparent")]
+    ChildElement((ChildElement, Vec<u8>)),
 }
 
-#[derive(Derivative)]
+#[derive(Derivative, Arbitrary, Clone, PartialEq, PartialOrd, Serialize, Deserialize)]
 #[derivative(Debug)]
-#[derive(Arbitrary, Clone, PartialEq, PartialOrd, Serialize, Deserialize)]
 pub enum MasterElement {
     #[derivative(Debug = "transparent")]
     MasterStartElement(MasterStartElement),
@@ -59,9 +63,8 @@ pub struct MasterEndElement {
     pub ebml_id: EbmlId,
 }
 
-#[derive(Derivative)]
+#[derive(Derivative, Arbitrary, Clone, PartialEq, PartialOrd, Serialize, Deserialize)]
 #[derivative(Debug)]
-#[derive(Arbitrary, Clone, PartialEq, PartialOrd, Serialize, Deserialize)]
 pub enum ChildElement {
     // u
     #[derivative(Debug = "transparent")]
@@ -149,9 +152,8 @@ pub struct DateElement {
     pub value: DateTime<Utc>,
 }
 
-#[derive(Derivative)]
-#[derivative(Debug = "transparent")]
 #[derive(
+    Derivative,
     Arbitrary,
     Clone,
     PartialEq,
@@ -166,6 +168,7 @@ pub struct DateElement {
     Into,
     Display,
 )]
+#[derivative(Debug = "transparent")]
 pub struct EbmlId(pub i64);
 
 #[derive(
@@ -187,7 +190,7 @@ pub struct ElementPosition {
 }
 
 #[derive(Arbitrary, Debug, Clone, PartialEq, PartialOrd, Serialize, Deserialize)]
-pub(crate) struct SimpleBlock {
+pub struct SimpleBlock {
     pub discardable: bool,
     pub frames: Vec<Vec<u8>>,
     pub invisible: bool,
@@ -211,25 +214,50 @@ pub struct Schema {
 impl From<ElementDetail> for Element {
     fn from(o: ElementDetail) -> Self {
         match o {
-            ElementDetail::MasterElement(o, _) => Element::MasterElement(o),
-            ElementDetail::ChildElement(o, _) => Element::ChildElement(o),
+            ElementDetail::MasterElement((o, _)) => Element::MasterElement(o),
+            ElementDetail::ChildElement((o, _)) => Element::ChildElement(o),
         }
     }
 }
 
-impl From<MasterElement> for Element {
-    fn from(o: MasterElement) -> Self {
-        Element::MasterElement(o)
+impl From<(MasterStartElement, Vec<Tree>)> for Tree {
+    fn from(o: (MasterStartElement, Vec<Tree>)) -> Tree {
+        Tree::MasterElement(o)
     }
 }
 
-impl From<ChildElement> for Element {
-    fn from(o: ChildElement) -> Self {
-        Element::ChildElement(o)
+impl From<(ChildElement, Vec<u8>)> for Tree {
+    fn from(o: (ChildElement, Vec<u8>)) -> Tree {
+        Tree::ChildElement(o)
     }
 }
 
 macro_rules! master_defs {
+    ($ty:ident) => {
+        impl From<$ty> for Element {
+            fn from(o: $ty) -> Self {
+                Element::$ty(o)
+            }
+        }
+
+        impl From<($ty, ElementPosition)> for ElementDetail {
+            fn from(o: ($ty, ElementPosition)) -> ElementDetail {
+                ElementDetail::$ty(o)
+            }
+        }
+
+        impl From<($ty, ElementPosition)> for Element {
+            fn from(o: ($ty, ElementPosition)) -> Element {
+                Element::$ty(o.0)
+            }
+        }
+    };
+}
+
+master_defs!(MasterElement);
+master_defs!(ChildElement);
+
+macro_rules! master_defs2 {
     ($ty:ident) => {
         impl From<$ty> for Element {
             fn from(o: $ty) -> Self {
@@ -242,35 +270,53 @@ macro_rules! master_defs {
                 MasterElement::$ty(o)
             }
         }
+
+        impl From<($ty, ElementPosition)> for ElementDetail {
+            fn from(o: ($ty, ElementPosition)) -> ElementDetail {
+                ElementDetail::MasterElement((o.0.into(), o.1))
+            }
+        }
+
+        impl From<($ty, ElementPosition)> for Element {
+            fn from(o: ($ty, ElementPosition)) -> Element {
+                Element::MasterElement(o.0.into())
+            }
+        }
     };
 }
 
-master_defs!(MasterStartElement);
-master_defs!(MasterEndElement);
+master_defs2!(MasterStartElement);
+master_defs2!(MasterEndElement);
 
 macro_rules! child_defs {
-    ($ty:ident) => {
+    ($ty:ident, $ty2:ty) => {
         impl From<$ty> for Element {
-            fn from(o: $ty) -> Self {
+            fn from(o: $ty) -> Element {
                 Element::ChildElement(o.into())
             }
         }
 
         impl From<$ty> for ChildElement {
-            fn from(o: $ty) -> Self {
+            fn from(o: $ty) -> ChildElement {
                 ChildElement::$ty(o)
+            }
+        }
+
+        impl From<(EbmlId, $ty2)> for $ty {
+            fn from((ebml_id, value): (EbmlId, $ty2)) -> $ty {
+                $ty { ebml_id, value }
             }
         }
     };
 }
 
-child_defs!(UnsignedIntegerElement);
-child_defs!(IntegerElement);
-child_defs!(FloatElement);
-child_defs!(StringElement);
-child_defs!(Utf8Element);
-child_defs!(BinaryElement);
-child_defs!(DateElement);
+child_defs!(UnsignedIntegerElement, u64);
+child_defs!(IntegerElement, i64);
+child_defs!(FloatElement, f64);
+child_defs!(StringElement, Vec<u8>);
+child_defs!(Utf8Element, String);
+child_defs!(BinaryElement, Vec<u8>);
+child_defs!(DateElement, DateTime<Utc>);
 
 fn arb_datetime() -> impl Strategy<Value = ::chrono::DateTime<::chrono::Utc>> {
     Just(::chrono::Utc::now())

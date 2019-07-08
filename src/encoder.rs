@@ -1,8 +1,10 @@
 #![allow(unused_imports, dead_code)]
 use crate::ebml;
-use crate::vint::{write_vint, UnrepresentableValueError};
+use crate::vint::{write_vint, UnrepresentableValueError, WriteVintExt};
+use byteorder::{BigEndian, WriteBytesExt};
 use err_derive::Error;
 use log_derive::{logfn, logfn_inputs};
+use std::convert::TryFrom;
 
 #[derive(Debug, Error)]
 pub enum EncodeError {
@@ -12,6 +14,20 @@ pub enum EncodeError {
     UnknownEbmlId(ebml::EbmlId),
     #[error(display = "EBML structure is broken")]
     Bloken,
+    #[error(display = "EncodeTagError")]
+    EncodeTag(#[error(cause)] EncodeTagError),
+}
+
+impl From<std::io::Error> for EncodeError {
+    fn from(o: std::io::Error) -> EncodeError {
+        EncodeError::Io(o)
+    }
+}
+
+impl From<EncodeTagError> for EncodeError {
+    fn from(o: EncodeTagError) -> EncodeError {
+        EncodeError::EncodeTag(o)
+    }
 }
 
 pub struct Encoder<D> {
@@ -40,13 +56,8 @@ impl<D: ebml::SchemaDict> Encoder<D> {
     #[logfn(ok = "TRACE", err = "ERROR")]
     fn encode_chunk(&mut self, elm: ebml::Element) -> Result<(), EncodeError> {
         match elm {
-            ebml::Element::MasterElement(ebml::MasterElement::MasterStartElement(
-                ebml::MasterStartElement {
-                    ebml_id,
-                    unknown_size,
-                },
-            )) => {
-                self.start_tag(ebml_id, unknown_size)?;
+            ebml::Element::MasterElement(ebml::MasterElement::MasterStartElement(o)) => {
+                self.start_tag(o)?;
             }
             ebml::Element::MasterElement(ebml::MasterElement::MasterEndElement(
                 ebml::MasterEndElement { ebml_id },
@@ -61,8 +72,8 @@ impl<D: ebml::SchemaDict> Encoder<D> {
     }
     #[logfn(ok = "TRACE", err = "ERROR")]
     fn write_tag(&mut self, elm: ebml::ChildElement) -> Result<(), EncodeError> {
-        // const buf = encode_tag(elm)?;
-        // 親要素が閉じタグあり(isEnd)なら閉じタグが来るまで待つ(children queに入る)
+        let buf = encode_child_tag(elm)?;
+        // 親要素が閉じタグありなら閉じタグが来るまで待つ(children queに入る)
         if !self.stack.is_empty() {
             let last = self.stack.last_mut().unwrap();
             // last.children.push({
@@ -77,52 +88,49 @@ impl<D: ebml::SchemaDict> Encoder<D> {
         Ok(())
     }
     #[logfn(ok = "TRACE", err = "ERROR")]
-    fn start_tag(&mut self, ebml_id: ebml::EbmlId, unknown_size: bool) -> Result<(), EncodeError> {
+    fn start_tag(&mut self, o: ebml::MasterStartElement) -> Result<(), EncodeError> {
         let schema = self
             .schema
-            .get(ebml_id)
-            .ok_or_else(|| EncodeError::UnknownEbmlId(ebml_id))?;
-        if unknown_size {
+            .get(o.ebml_id)
+            .ok_or_else(|| EncodeError::UnknownEbmlId(o.ebml_id))?;
+        if o.unknown_size {
             // 不定長の場合はスタックに積まずに即時バッファに書き込む
-            let data = unimplemented!(); //tools.encodeTag(tagId, new Buffer(0), elm.unknownSize);
-            self.queue.append(data);
+            let mut data = encode_master_tag(o, vec![])?;
+            self.queue.append(&mut data);
             return Ok(());
         }
-        let tree = ebml::Tree::MasterElement(
-            ebml::MasterStartElement {
-                ebml_id,
-                unknown_size,
-            }
-            .into(),
-            vec![],
-        );
+        let tree = (o, vec![]).into();
         if !self.stack.is_empty() {
-            // self.stack.last_mut().unwrap().children.push(tree);
-        } //else{
-        self.stack.push(tree);
-        //}
+            match self.stack.last_mut().unwrap() {
+                ebml::Tree::MasterElement((_, ref mut children)) => {
+                    children.push(tree);
+                }
+                _ => {
+                    return Err(EncodeError::Bloken);
+                }
+            }
+        } else {
+            self.stack.push(tree);
+        }
         Ok(())
     }
     #[logfn(ok = "TRACE", err = "ERROR")]
     fn end_tag(&mut self, ebml_id: ebml::EbmlId) -> Result<(), EncodeError> {
-        let tree = self.stack.pop().ok_or_else(|| EncodeError::Bloken)?;
-        match tree {
-            ebml::Tree::ChildElenent(..) => {
+        match self.stack.pop().ok_or_else(|| EncodeError::Bloken)? {
+            ebml::Tree::ChildElement(..) => {
                 return Err(EncodeError::Bloken);
             }
-            ebml::Tree::MasterElement(ebml::MasterElement::MasterEndElement { .. }, _) => {
-                return Err(EncodeError::Bloken);
-            }
-            ebml::Tree::MasterElement(
-                ebml::MasterElement::MasterStartElement(ebml::MasterStartElement {
+            ebml::Tree::MasterElement((
+                ebml::MasterStartElement {
                     ebml_id: parent_ebml_id,
                     ..
-                }),
-                _,
-            ) => {
+                },
+                children,
+            )) => {
                 if parent_ebml_id != ebml_id {
                     return Err(EncodeError::Bloken);
                 }
+                // children
             }
         }
         // const childTagDataBuffers = tree.children.reduce<Buffer[]>((lst, child)=>{
@@ -156,8 +164,14 @@ impl From<std::num::TryFromIntError> for EncodeTagError {
     }
 }
 
-/*
-fn encode_master_tag(o: ebml::MasterElement) -> Result<Vec<u8>, EncodeTagError> {
+#[logfn_inputs(TRACE)]
+#[logfn(ok = "TRACE", err = "ERROR")]
+fn encode_master_tag(
+    o: ebml::MasterStartElement,
+    children: Vec<ebml::Tree>,
+) -> Result<Vec<u8>, EncodeTagError> {
+    Ok(vec![])
+    /*
     use std::convert::TryFrom;
     let (ebml_id, body) = match o {
         ebml::MasterElement::MasterStartElement{ ebml_id, unknown_size } => {
@@ -169,103 +183,121 @@ fn encode_master_tag(o: ebml::MasterElement) -> Result<Vec<u8>, EncodeTagError> 
         },
     };
     Ok(vec![ebml_id, write_vint(i64::try_from(body.len())?), body])
+    */
 }
+
+#[logfn_inputs(TRACE)]
+#[logfn(ok = "TRACE", err = "ERROR")]
 fn encode_child_tag(elm: ebml::ChildElement) -> Result<Vec<u8>, EncodeTagError> {
-    use std::convert::TryFrom;
-    let (ebml_id, body) = match elm {
-        ebml::ChildElement::BinaryElement{ebml_id, value} => {
-            (ebml_id, vec![])
-        },
-        ebml::ChildElement::DateElement{ebml_id, value} => {
-            (ebml_id, vec![])
-        },
-        ebml::ChildElement::FloatElement{ebml_id, value} => {
-            (ebml_id, vec![])
-        },
-        ebml::ChildElement::IntegerElement{ebml_id, value} => {
-            (ebml_id, vec![])
-        },
-        ebml::ChildElement::StringElement{ebml_id, value} => {
-            (ebml_id, vec![])
-        },
-        ebml::ChildElement::UnsignedIntegerElement{ebml_id, value} => {
-            (ebml_id, vec![])
-        },
-        ebml::ChildElement::Utf8Element{ebml_id, value} => {
-            (ebml_id, vec![])
-        },
-    };
-    Ok(vec![ebml_id, write_vint(i64::try_from(body.len())?), body])
-}
-*/
-
-/*
-export function encodeValueToBuffer(elm: EBML.MasterElement): EBML.MasterElement;
-export function encodeValueToBuffer(elm: EBML.ChildElementsValue): EBML.ChildElementBuffer;
-export function encodeValueToBuffer(elm: EBML.EBMLElementValue): EBML.EBMLElementBuffer {
-  let data = new Buffer(0);
-  if(elm.type === "m"){ return elm; }
-  switch(elm.type){
-    case "u": data = createUIntBuffer(elm.value); break;
-    case "i": data = createIntBuffer(elm.value); break;
-    case "f": data = createFloatBuffer(elm.value); break;
-    case "s": data = new Buffer(elm.value, 'ascii'); break;
-    case "8": data = new Buffer(elm.value, 'utf8'); break;
-    case "b": data = elm.value; break;
-    case "d": data = new Int64BE(elm.value.getTime().toString()).toBuffer(); break;
-  }
-  return Object.assign({}, elm, {data});
+    Ok(match elm {
+        ebml::ChildElement::BinaryElement(o) => o.into(),
+        ebml::ChildElement::DateElement(o) => o.into(),
+        ebml::ChildElement::FloatElement(o) => o.into(),
+        ebml::ChildElement::IntegerElement(o) => o.into(),
+        ebml::ChildElement::StringElement(o) => o.into(),
+        ebml::ChildElement::UnsignedIntegerElement(o) => o.into(),
+        ebml::ChildElement::Utf8Element(o) => o.into(),
+    })
 }
 
-export function createUIntBuffer(value: number): Buffer {
-  // Big-endian, any size from 1 to 8
-  // but js number is float64, so max 6 bit octets
-  let bytes: 1|2|3|4|5|6 = 1;
-  for(; value >= Math.pow(2, 8*bytes); bytes++){}
-  if(bytes >= 7){
-    console.warn("7bit or more bigger uint not supported.");
-    return new Uint64BE(value).toBuffer();
-  }
-  const data = new Buffer(bytes);
-  data.writeUIntBE(value, 0, bytes);
-  return data;
+impl From<ebml::UnsignedIntegerElement> for Vec<u8> {
+    fn from(elm: ebml::UnsignedIntegerElement) -> Self {
+        // Big-endian, any size from 1 to 8
+        let mut bytes: usize = 1;
+        while elm.value >= u64::pow(2, 8 * u32::try_from(bytes).unwrap()) {
+            bytes += 1;
+        }
+        let mut buf = vec![0; bytes];
+        buf.write_uint::<BigEndian>(elm.value, bytes).unwrap();
+        let mut buf2 = vec![];
+        buf2.write_int::<BigEndian>(elm.ebml_id.0, 1).unwrap();
+        buf2.write_vint(i64::try_from(buf.len()).unwrap()).unwrap();
+        buf2.append(&mut buf);
+        buf2
+    }
 }
 
-export function createIntBuffer(value: number): Buffer {
-  // Big-endian, any size from 1 to 8 octets
-  // but js number is float64, so max 6 bit
-  let bytes: 1|2|3|4|5|6 = 1;
-  for(; value >= Math.pow(2, 8*bytes); bytes++){}
-  if(bytes >= 7){
-    console.warn("7bit or more bigger uint not supported.");
-    return new Int64BE(value).toBuffer();
-  }
-  const data = new Buffer(bytes);
-  data.writeIntBE(value, 0, bytes);
-  return data;
+impl From<ebml::IntegerElement> for Vec<u8> {
+    fn from(elm: ebml::IntegerElement) -> Self {
+        // Big-endian, any size from 1 to 8 octets
+        let mut bytes: usize = 1;
+        while elm.value >= i64::pow(2, 8 * u32::try_from(bytes).unwrap()) {
+            bytes += 1;
+        }
+        let mut buf = vec![0; bytes];
+        buf.write_int::<BigEndian>(elm.value, bytes).unwrap();
+        let mut buf2 = vec![];
+        buf2.write_int::<BigEndian>(elm.ebml_id.0, 1).unwrap();
+        buf2.write_vint(i64::try_from(buf.len()).unwrap()).unwrap();
+        buf2.append(&mut buf);
+        buf2
+    }
 }
 
-export function createFloatBuffer(value: number, bytes: 4|8 = 8): Buffer {
-  // Big-endian, defined for 4 and 8 octets (32, 64 bits)
-  // js number is float64 so 8 bytes.
-  if(bytes === 8){
-    // 64bit
-    const data = new Buffer(8);
-    data.writeDoubleBE(value, 0);
-    return data;
-  }else if(bytes === 4){
-    // 32bit
-    const data = new Buffer(4);
-    data.writeFloatBE(value, 0);
-    return data;
-  }else{
-    throw new Error("float type bits must 4bytes or 8bytes");
-  }
+impl From<ebml::FloatElement> for Vec<u8> {
+    fn from(elm: ebml::FloatElement) -> Self {
+        // Big-endian, defined for 4 and 8 octets (32, 64 bits)
+        // currently 64bit support only
+        let mut buf = vec![0; 8];
+        buf.write_f64::<BigEndian>(elm.value).unwrap();
+        let mut buf2 = vec![];
+        buf2.write_int::<BigEndian>(elm.ebml_id.0, 1).unwrap();
+        buf2.write_vint(i64::try_from(buf.len()).unwrap()).unwrap();
+        buf2.append(&mut buf);
+        buf2
+    }
 }
 
-export function convertEBMLDateToJSDate(int64str: number | string | Date): Date {
-  if(int64str instanceof Date){ return int64str; }
-  return new Date(new Date("2001-01-01T00:00:00.000Z").getTime() +  (Number(int64str)/1000/1000));
+impl From<ebml::StringElement> for Vec<u8> {
+    fn from(elm: ebml::StringElement) -> Self {
+        let mut buf = elm.value.clone();
+        let mut buf2 = vec![];
+        buf2.write_int::<BigEndian>(elm.ebml_id.0, 1).unwrap();
+        buf2.write_vint(i64::try_from(buf.len()).unwrap()).unwrap();
+        buf2.append(&mut buf);
+        buf2
+    }
 }
 
-*/
+impl From<ebml::Utf8Element> for Vec<u8> {
+    fn from(elm: ebml::Utf8Element) -> Self {
+        let mut buf = elm.value.as_bytes().to_vec();
+        let mut buf2 = vec![];
+        buf2.write_int::<BigEndian>(elm.ebml_id.0, 1).unwrap();
+        buf2.write_vint(i64::try_from(buf.len()).unwrap()).unwrap();
+        buf2.append(&mut buf);
+        buf2
+    }
+}
+
+impl From<ebml::BinaryElement> for Vec<u8> {
+    fn from(elm: ebml::BinaryElement) -> Self {
+        let mut buf = elm.value.clone();
+        let mut buf2 = vec![];
+        buf2.write_int::<BigEndian>(elm.ebml_id.0, 1).unwrap();
+        buf2.write_vint(i64::try_from(buf.len()).unwrap()).unwrap();
+        buf2.append(&mut buf);
+        buf2
+    }
+}
+
+impl From<ebml::DateElement> for Vec<u8> {
+    fn from(elm: ebml::DateElement) -> Self {
+        // nano second; Date.UTC(2001,1,1,0,0,0,0) === 980985600000
+        // new Date("2001-01-01T00:00:00.000Z").getTime() = 978307200000
+        // Date - signed 8 octets integer in nanoseconds with 0 indicating
+        // the precise beginning of the millennium (at 2001-01-01T00:00:00,000000000 UTC)
+        let nanos = elm.value.timestamp_nanos() + 978_307_200 * 1000 * 1000 * 1000;
+        let mut bytes: usize = 1;
+        while nanos >= i64::pow(2, 8 * u32::try_from(bytes).unwrap()) {
+            bytes += 1;
+        }
+        let mut buf = vec![0; bytes];
+        buf.write_int::<BigEndian>(nanos, bytes).unwrap();
+        let mut buf2 = vec![];
+        buf2.write_int::<BigEndian>(elm.ebml_id.0, 1).unwrap();
+        buf2.write_vint(i64::try_from(buf.len()).unwrap()).unwrap();
+        buf2.append(&mut buf);
+        buf2
+    }
+}
