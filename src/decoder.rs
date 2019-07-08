@@ -8,7 +8,7 @@ pub trait ReadEbmlExt: std::io::Read {
     fn read_ebml_to_end(
         &mut self,
         schema: impl ebml::SchemaDict,
-    ) -> Result<Vec<ebml::Element>, DecodeError> {
+    ) -> Result<Vec<ebml::ElementDetail>, DecodeError> {
         let mut decoder = Decoder::new(schema);
         let mut buf = vec![];
         let _size = self.read_to_end(&mut buf).map_err(DecodeError::Io)?;
@@ -20,7 +20,10 @@ pub trait ReadEbmlExt: std::io::Read {
 impl<R: std::io::Read + ?Sized> ReadEbmlExt for R {}
 
 pub trait BufReadEbmlExt: std::io::BufRead {
-    fn read(&mut self, schema: impl ebml::SchemaDict) -> Result<Vec<ebml::Element>, DecodeError> {
+    fn read(
+        &mut self,
+        schema: impl ebml::SchemaDict,
+    ) -> Result<Vec<ebml::ElementDetail>, DecodeError> {
         let mut decoder = Decoder::new(schema);
         let mut buf = vec![];
         loop {
@@ -48,12 +51,12 @@ impl<R: std::io::BufRead + ?Sized> BufReadEbmlExt for R {}
 pub enum DecodeError {
     #[error(display = "{}", _0)]
     ReadVint(#[error(cause)] UnrepresentableLengthError),
-    #[error(display = "UnknwonSizeNotAllowedInChildElement: detail {:?}", _0)]
-    UnknwonSizeNotAllowedInChildElement(ebml::ElementDetail),
+    #[error(display = "UnknwonSizeNotAllowedInChildElement: pos {:?}", _0)]
+    UnknwonSizeNotAllowedInChildElement(ebml::ElementPosition),
     #[error(display = "ReadContent")]
     ReadContent(#[error(cause)] ReadContentError),
-    #[error(display = "UnknownSchema: {:?}", _0)]
-    UnknownSchema(ebml::EbmlId),
+    #[error(display = "UnknownEbmlId: {:?}", _0)]
+    UnknownEbmlId(ebml::EbmlId),
     #[error(display = "Io")]
     Io(#[error(cause)] std::io::Error),
 }
@@ -82,8 +85,8 @@ pub struct Decoder<D> {
     buffer: Vec<u8>,
     cursor: usize,
     total: usize,
-    stack: Vec<ebml::ElementDetail>,
-    queue: Vec<ebml::Element>,
+    stack: Vec<ebml::ElementPosition>,
+    queue: Vec<ebml::ElementDetail>,
 }
 
 impl<D: ebml::SchemaDict> Decoder<D> {
@@ -98,7 +101,7 @@ impl<D: ebml::SchemaDict> Decoder<D> {
             queue: vec![],
         }
     }
-    pub fn decode(&mut self, chunk: Vec<u8>) -> Result<Vec<ebml::Element>, DecodeError> {
+    pub fn decode(&mut self, chunk: Vec<u8>) -> Result<Vec<ebml::ElementDetail>, DecodeError> {
         self.read_chunk(chunk)?;
         let mut result = vec![];
         std::mem::swap(&mut self.queue, &mut result);
@@ -155,8 +158,8 @@ impl<D: ebml::SchemaDict> Decoder<D> {
         let schema = self
             .schema
             .get(ebml_id)
-            .ok_or_else(|| DecodeError::UnknownSchema(ebml_id))?;
-        let detail = ebml::ElementDetail {
+            .ok_or_else(|| DecodeError::UnknownEbmlId(ebml_id))?;
+        let pos = ebml::ElementPosition {
             level: schema.level,
             r#type: schema.r#type,
             ebml_id,
@@ -165,7 +168,7 @@ impl<D: ebml::SchemaDict> Decoder<D> {
             content_start,
             content_size,
         };
-        self.stack.push(detail);
+        self.stack.push(pos);
 
         // move cursor
         self.cursor += tag_size as usize;
@@ -190,7 +193,7 @@ impl<D: ebml::SchemaDict> Decoder<D> {
         let size = opt_size.unwrap();
 
         // decide current tag data size
-        let ebml::ElementDetail {
+        let ebml::ElementPosition {
             ref mut tag_start,
             ref mut content_start,
             ref mut content_size,
@@ -207,26 +210,26 @@ impl<D: ebml::SchemaDict> Decoder<D> {
         Ok(true)
     }
     fn read_content(&mut self) -> Result<bool, DecodeError> {
-        let current_detail = self.stack.last().unwrap();
+        let current_pos = self.stack.last().unwrap();
         // master element は子要素を持つので生データはない
-        if current_detail.r#type == 'm' {
-            let elm = ebml::Element::MasterElement(
+        if current_pos.r#type == 'm' {
+            let elm = ebml::ElementDetail::MasterElement(
                 ebml::MasterElement::MasterStartElement {
-                    ebml_id: current_detail.ebml_id,
-                    unknown_size: current_detail.content_size == -1,
+                    ebml_id: current_pos.ebml_id,
+                    unknown_size: current_pos.content_size == -1,
                 },
-                *current_detail,
+                *current_pos,
             );
             self.queue.push(elm);
             self.state = State::Tag;
             // この Mastert Element は空要素か
-            if current_detail.content_size == 0 {
+            if current_pos.content_size == 0 {
                 // 即座に終了タグを追加
-                self.queue.push(ebml::Element::MasterElement(
+                self.queue.push(ebml::ElementDetail::MasterElement(
                     ebml::MasterElement::MasterEndElement {
-                        ebml_id: current_detail.ebml_id,
+                        ebml_id: current_pos.ebml_id,
                     },
-                    *current_detail,
+                    *current_pos,
                 ));
                 // スタックからこのタグを捨てる
                 self.stack.pop();
@@ -235,13 +238,13 @@ impl<D: ebml::SchemaDict> Decoder<D> {
         }
         // endless master element
         // waiting for more data
-        if current_detail.content_size < 0 {
+        if current_pos.content_size < 0 {
             return Err(DecodeError::UnknwonSizeNotAllowedInChildElement(
-                *current_detail,
+                *current_pos,
             ));
         }
         use std::convert::TryFrom as _;
-        let content_size = usize::try_from(current_detail.content_size).unwrap();
+        let content_size = usize::try_from(current_pos.content_size).unwrap();
         if self.buffer.len() < self.cursor + content_size {
             return Ok(false);
         }
@@ -251,13 +254,13 @@ impl<D: ebml::SchemaDict> Decoder<D> {
         self.buffer = self.buffer.split_off(self.cursor + content_size);
 
         let child_elm = read_child_element(
-            current_detail.ebml_id,
-            current_detail.r#type,
+            current_pos.ebml_id,
+            current_pos.r#type,
             std::io::Cursor::new(content),
             content_size,
         )?;
         self.queue
-            .push(ebml::Element::ChildElement(child_elm, *current_detail));
+            .push(ebml::ElementDetail::ChildElement(child_elm, *current_pos));
 
         // ポインタを進める
         self.total += content_size;
@@ -268,26 +271,26 @@ impl<D: ebml::SchemaDict> Decoder<D> {
         self.stack.pop();
 
         while !self.stack.is_empty() {
-            let parent_detail = self.stack.last().unwrap();
+            let parent_pos = self.stack.last().unwrap();
             // 親が不定長サイズなので閉じタグは期待できない
-            if parent_detail.content_size < 0 {
+            if parent_pos.content_size < 0 {
                 self.stack.pop(); // 親タグを捨てる
                 return Ok(true);
             }
             // 閉じタグの来るべき場所まで来たかどうか
-            if self.total < parent_detail.content_start + content_size {
+            if self.total < parent_pos.content_start + content_size {
                 break;
             }
             // 閉じタグを挿入すべきタイミングが来た
-            if parent_detail.r#type != 'm' {
+            if parent_pos.r#type != 'm' {
                 // throw new Error("parent element is not master element");
                 unreachable!();
             }
-            self.queue.push(ebml::Element::MasterElement(
+            self.queue.push(ebml::ElementDetail::MasterElement(
                 ebml::MasterElement::MasterEndElement {
-                    ebml_id: parent_detail.ebml_id,
+                    ebml_id: parent_pos.ebml_id,
                 },
-                *parent_detail,
+                *parent_pos,
             ));
             // スタックからこのタグを捨てる
             self.stack.pop();

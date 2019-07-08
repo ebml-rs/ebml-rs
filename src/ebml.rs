@@ -4,9 +4,38 @@ use derive_more::{Display, From, Into};
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
 pub enum Element {
     // m
-    MasterElement(MasterElement, ElementDetail),
+    MasterElement(MasterElement),
     // u i f s 8 b d
-    ChildElement(ChildElement, ElementDetail),
+    ChildElement(ChildElement),
+}
+
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
+pub enum ElementDetail {
+    // m
+    MasterElement(MasterElement, ElementPosition),
+    // u i f s 8 b d
+    ChildElement(ChildElement, ElementPosition),
+}
+
+impl From<ElementDetail> for Element {
+    fn from(o: ElementDetail) -> Self {
+        match o {
+            ElementDetail::MasterElement(o, _) => Element::MasterElement(o),
+            ElementDetail::ChildElement(o, _) => Element::ChildElement(o),
+        }
+    }
+}
+
+impl From<MasterElement> for Element {
+    fn from(o: MasterElement) -> Self {
+        Element::MasterElement(o)
+    }
+}
+
+impl From<ChildElement> for Element {
+    fn from(o: ChildElement) -> Self {
+        Element::ChildElement(o)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
@@ -60,7 +89,7 @@ pub enum ChildElement {
 pub struct EbmlId(pub i64);
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct ElementDetail {
+pub struct ElementPosition {
     // hex EBML ID
     pub ebml_id: EbmlId,
     // The level within an EBML tree that the element may occur at.
@@ -73,6 +102,12 @@ pub struct ElementDetail {
     pub size_start: usize,
     pub content_start: usize,
     pub content_size: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
+pub enum Tree {
+    MasterElement(MasterElement, Vec<Tree>),
+    ChildElenent(ChildElement),
 }
 
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
