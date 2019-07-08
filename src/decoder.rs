@@ -1,10 +1,11 @@
-#![allow(dead_code)]
 use crate::ebml;
 use crate::vint::{read_vint, UnrepresentableLengthError};
 use chrono::{DateTime, NaiveDateTime, Utc};
 use err_derive::Error;
+use log_derive::{logfn, logfn_inputs};
 
 pub trait ReadEbmlExt: std::io::Read {
+    #[logfn(ok = "TRACE", err = "ERROR")]
     fn read_ebml_to_end(
         &mut self,
         schema: impl ebml::SchemaDict,
@@ -20,6 +21,7 @@ pub trait ReadEbmlExt: std::io::Read {
 impl<R: std::io::Read + ?Sized> ReadEbmlExt for R {}
 
 pub trait BufReadEbmlExt: std::io::BufRead {
+    #[logfn(ok = "TRACE", err = "ERROR")]
     fn read(
         &mut self,
         schema: impl ebml::SchemaDict,
@@ -73,6 +75,7 @@ impl From<ReadContentError> for DecodeError {
     }
 }
 
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 enum State {
     Tag,
     Size,
@@ -101,12 +104,14 @@ impl<D: ebml::SchemaDict> Decoder<D> {
             queue: vec![],
         }
     }
+    #[logfn(ok = "TRACE", err = "ERROR")]
     pub fn decode(&mut self, chunk: Vec<u8>) -> Result<Vec<ebml::ElementDetail>, DecodeError> {
         self.read_chunk(chunk)?;
         let mut result = vec![];
         std::mem::swap(&mut self.queue, &mut result);
         Ok(result)
     }
+    #[logfn(ok = "TRACE", err = "ERROR")]
     fn read_chunk(&mut self, mut chunk: Vec<u8>) -> Result<(), DecodeError> {
         // 読みかけの(読めなかった) buffer と 新しい chunk を合わせて読み直す
         self.buffer.append(&mut chunk);
@@ -132,6 +137,7 @@ impl<D: ebml::SchemaDict> Decoder<D> {
         Ok(())
     }
     /// return false when waiting for more data
+    #[logfn(ok = "TRACE", err = "ERROR")]
     fn read_tag(&mut self) -> Result<bool, DecodeError> {
         // tag is out of buffer
         if self.cursor >= self.buffer.len() {
@@ -147,9 +153,20 @@ impl<D: ebml::SchemaDict> Decoder<D> {
 
         let tag_view = &self.buffer[self.cursor..(self.cursor + tag_size as usize)];
         // assert_eq!(tag_view.len(), tag_size as usize);
-        let ebml_id = ebml::EbmlId(tag_view.iter().enumerate().fold(0_i64, |o, (v, i)| {
-            o + (v as i64) * i64::pow(16_i64, 2_u32 * (u32::from(tag_size) - 1 - u32::from(*i)))
-        }));
+        use std::convert::TryFrom;
+        let ebml_id = ebml::EbmlId(
+            tag_view
+                .iter()
+                .enumerate()
+                .map(|(i, v)| {
+                    i64::from(*v)
+                        * i64::pow(
+                            16_i64,
+                            2_u32 * (u32::from(tag_size) - 1 - u32::try_from(i).unwrap()),
+                        )
+                })
+                .sum(),
+        );
 
         let tag_start = self.total;
         let size_start = self.total + (tag_size as usize);
@@ -179,6 +196,7 @@ impl<D: ebml::SchemaDict> Decoder<D> {
         Ok(true)
     }
     /// return false when waiting for more data
+    #[logfn(ok = "TRACE", err = "ERROR")]
     fn read_size(&mut self) -> Result<bool, DecodeError> {
         if self.cursor >= self.buffer.len() {
             return Ok(false);
@@ -209,15 +227,17 @@ impl<D: ebml::SchemaDict> Decoder<D> {
 
         Ok(true)
     }
+    #[logfn(ok = "TRACE", err = "ERROR")]
     fn read_content(&mut self) -> Result<bool, DecodeError> {
         let current_pos = self.stack.last().unwrap();
         // master element は子要素を持つので生データはない
         if current_pos.r#type == 'm' {
             let elm = ebml::ElementDetail::MasterElement(
-                ebml::MasterElement::MasterStartElement {
+                ebml::MasterStartElement {
                     ebml_id: current_pos.ebml_id,
                     unknown_size: current_pos.content_size == -1,
-                },
+                }
+                .into(),
                 *current_pos,
             );
             self.queue.push(elm);
@@ -226,9 +246,10 @@ impl<D: ebml::SchemaDict> Decoder<D> {
             if current_pos.content_size == 0 {
                 // 即座に終了タグを追加
                 self.queue.push(ebml::ElementDetail::MasterElement(
-                    ebml::MasterElement::MasterEndElement {
+                    ebml::MasterEndElement {
                         ebml_id: current_pos.ebml_id,
-                    },
+                    }
+                    .into(),
                     *current_pos,
                 ));
                 // スタックからこのタグを捨てる
@@ -287,9 +308,10 @@ impl<D: ebml::SchemaDict> Decoder<D> {
                 unreachable!();
             }
             self.queue.push(ebml::ElementDetail::MasterElement(
-                ebml::MasterElement::MasterEndElement {
+                ebml::MasterEndElement {
                     ebml_id: parent_pos.ebml_id,
-                },
+                }
+                .into(),
                 *parent_pos,
             ));
             // スタックからこのタグを捨てる
@@ -321,13 +343,14 @@ pub enum ReadContentError {
     Unknown(#[error(cause)] std::io::Error),
 }
 
-fn read_child_element<C: std::io::Read>(
+#[logfn_inputs(TRACE)]
+#[logfn(ok = "TRACE", err = "ERROR")]
+fn read_child_element<C: std::io::Read + std::fmt::Debug>(
     ebml_id: ebml::EbmlId,
     r#type: char,
     mut content: C,
     content_size: usize,
 ) -> Result<ebml::ChildElement, ReadContentError> {
-    use crate::ebml::ChildElement::*;
     use byteorder::{BigEndian, ReadBytesExt as _};
     use ReadContentError::{String as StringE, *};
     match r#type {
@@ -336,14 +359,14 @@ fn read_child_element<C: std::io::Read>(
             let value = content
                 .read_uint::<BigEndian>(content_size)
                 .map_err(UnsignedInteger)?;
-            Ok(UnsignedIntegerElement { ebml_id, value })
+            Ok(ebml::UnsignedIntegerElement { ebml_id, value }.into())
         }
         // Signed Integer - Big-endian, any size from 1 to 8 octets
         'i' => {
             let value = content
                 .read_int::<BigEndian>(content_size)
                 .map_err(Integer)?;
-            Ok(IntegerElement { ebml_id, value })
+            Ok(ebml::IntegerElement { ebml_id, value }.into())
         }
         // Float - Big-endian, defined for 4 and 8 octets (32, 64 bits)
         'f' => {
@@ -357,25 +380,25 @@ fn read_child_element<C: std::io::Read>(
                     format!("invalid float content_size: {}", content_size),
                 )))?
             };
-            Ok(FloatElement { ebml_id, value })
+            Ok(ebml::FloatElement { ebml_id, value }.into())
         }
         //  Printable ASCII (0x20 to 0x7E), zero-padded when needed
         's' => {
             let mut value = vec![0; content_size];
             content.read_exact(&mut value).map_err(StringE)?;
-            Ok(StringElement { ebml_id, value })
+            Ok(ebml::StringElement { ebml_id, value }.into())
         }
         //  Unicode string, zero padded when needed (RFC 2279)
         '8' => {
             let mut value = std::string::String::new();
             content.read_to_string(&mut value).map_err(Utf8)?;
-            Ok(Utf8Element { ebml_id, value })
+            Ok(ebml::Utf8Element { ebml_id, value }.into())
         }
         // Binary - not interpreted by the parser
         'b' => {
             let mut value = vec![0; content_size];
             content.read_exact(&mut value).map_err(Binary)?;
-            Ok(BinaryElement { ebml_id, value })
+            Ok(ebml::BinaryElement { ebml_id, value }.into())
         }
         // nano second; Date.UTC(2001,1,1,0,0,0,0) === 980985600000
         // new Date("2001-01-01T00:00:00.000Z").getTime() = 978307200000
@@ -391,7 +414,7 @@ fn read_child_element<C: std::io::Read>(
                     .unwrap();
             let datetime = NaiveDateTime::from_timestamp(unix_time_secs, nsecs);
             let value = DateTime::from_utc(datetime, Utc);
-            Ok(DateElement { ebml_id, value })
+            Ok(ebml::DateElement { ebml_id, value }.into())
         }
         // Master-Element - contains other EBML sub-elements of the next lower level
         'm' => Err(Master(std::io::Error::new(

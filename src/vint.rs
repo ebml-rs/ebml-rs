@@ -1,4 +1,5 @@
 use err_derive::Error;
+use log_derive::{logfn, logfn_inputs};
 
 #[derive(Debug, Error)]
 pub enum ReadVintError {
@@ -14,12 +15,14 @@ pub struct UnrepresentableLengthError {
     length: u8,
 }
 
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Vint {
     pub length: u8,
     pub value: i64,
 }
 
 pub trait ReadVintExt: std::io::Read {
+    #[logfn(ok = "TRACE", err = "ERROR")]
     fn read_vint(&mut self) -> Result<Vint, ReadVintError> {
         use byteorder::ReadBytesExt as _;
         use ReadVintError::*;
@@ -48,6 +51,8 @@ pub trait ReadVintExt: std::io::Read {
 impl<R: std::io::Read + ?Sized> ReadVintExt for R {}
 
 /// https://www.matroska.org/technical/specs/index.html#EBML_ex
+#[logfn_inputs(TRACE)]
+#[logfn(ok = "TRACE", err = "ERROR")]
 pub fn read_vint(buffer: &[u8], start: usize) -> Result<Option<Vint>, UnrepresentableLengthError> {
     let mut o = std::io::Cursor::new(buffer);
     o.set_position(start as u64);
@@ -82,6 +87,7 @@ pub struct UnrepresentableValueError {
 }
 
 pub trait WriteVintExt: std::io::Write {
+    #[logfn(ok = "TRACE", err = "ERROR")]
     fn write_vint(&mut self, value: i64) -> Result<(), WriteVintError> {
         if value < 0 || i64::pow(2, 56) - 2 < value {
             return Err(WriteVintError::UnrepresentableValue(
@@ -113,6 +119,8 @@ pub trait WriteVintExt: std::io::Write {
 
 impl<R: std::io::Write + ?Sized> WriteVintExt for R {}
 
+#[logfn_inputs(TRACE)]
+#[logfn(ok = "TRACE", err = "ERROR")]
 pub fn write_vint(value: i64) -> Result<Vec<u8>, UnrepresentableValueError> {
     let mut buf = vec![];
     match buf.write_vint(value) {
@@ -131,6 +139,8 @@ mod test {
 
     #[test]
     fn test_read_vint() {
+        dotenv::dotenv().ok();
+        env_logger::try_init().ok();
         // should read the correct value for 1 byte int min/max values
         {
             {
@@ -524,6 +534,8 @@ mod test {
 
     #[test]
     fn test_log_2() {
+        dotenv::dotenv().ok();
+        env_logger::try_init().ok();
         assert_eq!(7, log_2(255));
         assert_eq!(7, log_2(128));
         assert_eq!(6, log_2(127));
@@ -544,6 +556,8 @@ mod test {
 
     #[test]
     fn test_write_vint() {
+        dotenv::dotenv().ok();
+        env_logger::try_init().ok();
         // should throw when writing -1
         {
             assert!(write_vint(-1).is_err());
