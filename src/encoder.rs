@@ -5,6 +5,7 @@ use byteorder::{BigEndian, WriteBytesExt};
 use err_derive::Error;
 use log_derive::{logfn, logfn_inputs};
 use std::convert::TryFrom;
+use log::debug;
 
 #[derive(Debug, Error)]
 pub enum EncodeError {
@@ -32,7 +33,19 @@ impl From<EncodeTagError> for EncodeError {
 
 pub struct Encoder<D> {
     schema: D,
-    stack: Vec<ebml::Tree>,
+    stack: Vec<(ebml::MasterStartElement, Vec<u8>)>,
+    // c
+    // c
+    // m
+    // + c
+    // + c
+    // + m
+    // | + c
+    // | + m
+    // | | + c
+    // | + c
+    // + c
+    // c
     queue: Vec<u8>,
 }
 
@@ -72,24 +85,19 @@ impl<D: ebml::SchemaDict> Encoder<D> {
     }
     #[logfn(ok = "TRACE", err = "ERROR")]
     fn write_tag(&mut self, elm: ebml::ChildElement) -> Result<(), EncodeError> {
-        let buf = encode_child_tag(elm)?;
-        // 親要素が閉じタグありなら閉じタグが来るまで待つ(children queに入る)
+        let mut data = encode_child_tag(elm)?;
+        // 親要素が閉じタグありなら閉じタグが来るまで待つ(master stack queueに入る)
         if !self.stack.is_empty() {
             let last = self.stack.last_mut().unwrap();
-            // last.children.push({
-            //     tagId,
-            //     elm,
-            //     children: <DataTree[]>[],
-            //     data
-            // });
+            last.1.append(&mut data);
             return Ok(());
         }
-        // self.queue.append(data);
+        self.queue.append(&mut data);
         Ok(())
     }
     #[logfn(ok = "TRACE", err = "ERROR")]
     fn start_tag(&mut self, o: ebml::MasterStartElement) -> Result<(), EncodeError> {
-        let schema = self
+        let _schema = self
             .schema
             .get(o.ebml_id)
             .ok_or_else(|| EncodeError::UnknownEbmlId(o.ebml_id))?;
@@ -99,53 +107,26 @@ impl<D: ebml::SchemaDict> Encoder<D> {
             self.queue.append(&mut data);
             return Ok(());
         }
-        let tree = (o, vec![]).into();
-        if !self.stack.is_empty() {
-            match self.stack.last_mut().unwrap() {
-                ebml::Tree::MasterElement((_, ref mut children)) => {
-                    children.push(tree);
-                }
-                _ => {
-                    return Err(EncodeError::Bloken);
-                }
-            }
-        } else {
-            self.stack.push(tree);
-        }
+        let tree = (o, vec![]);
+        // スタックに積む
+        self.stack.push(tree);
         Ok(())
     }
     #[logfn(ok = "TRACE", err = "ERROR")]
     fn end_tag(&mut self, ebml_id: ebml::EbmlId) -> Result<(), EncodeError> {
-        match self.stack.pop().ok_or_else(|| EncodeError::Bloken)? {
-            ebml::Tree::ChildElement(..) => {
-                return Err(EncodeError::Bloken);
-            }
-            ebml::Tree::MasterElement((
-                ebml::MasterStartElement {
-                    ebml_id: parent_ebml_id,
-                    ..
-                },
-                children,
-            )) => {
-                if parent_ebml_id != ebml_id {
-                    return Err(EncodeError::Bloken);
-                }
-                // children
-            }
+        // このスタックの大きさが確定した
+        let (o, buf) = self.stack.pop().ok_or_else(|| EncodeError::Bloken)?;
+        // opening tag と closing tag の id が一致するか確認
+        if o.ebml_id != ebml_id {
+            return Err(EncodeError::Bloken);
         }
-        // const childTagDataBuffers = tree.children.reduce<Buffer[]>((lst, child)=>{
-        //     if(child.data === null){ throw new Error("EBML structure is broken"); }
-        //     return lst.concat(child.data);
-        // }, []);
-        // const childTagDataBuffer = tools.concat(childTagDataBuffers);
-        // if(tree.elm.type === "m"){
-        // tree.data = tools.encodeTag(tag.tagId, childTagDataBuffer, tag.elm.unknownSize);
-        // }else{
-        // tree.data = tools.encodeTag(tag.tagId, childTagDataBuffer);
-        // }
-        if self.stack.len() < 1 {
-            // self.queue.append(tree.data);
+        let mut data = encode_master_tag(o, buf)?;
+        if !self.stack.is_empty() {
+            let last = self.stack.last_mut().unwrap();
+            last.1.append(&mut data);
+            return Ok(());
         }
+        self.queue.append(&mut data);
         Ok(())
     }
 }
@@ -164,26 +145,38 @@ impl From<std::num::TryFromIntError> for EncodeTagError {
     }
 }
 
+impl From<UnrepresentableValueError> for EncodeTagError {
+    fn from(o: UnrepresentableValueError) -> EncodeTagError {
+        EncodeTagError::UnrepresentableValue(o)
+    }
+}
+
 #[logfn_inputs(TRACE)]
 #[logfn(ok = "TRACE", err = "ERROR")]
 fn encode_master_tag(
     o: ebml::MasterStartElement,
-    children: Vec<ebml::Tree>,
+    mut body: Vec<u8>,
 ) -> Result<Vec<u8>, EncodeTagError> {
-    Ok(vec![])
-    /*
-    use std::convert::TryFrom;
-    let (ebml_id, body) = match o {
-        ebml::MasterElement::MasterStartElement{ ebml_id, unknown_size } => {
-            // unknownSize ? new Buffer('01ff_ffff_ffff_ffff', 'hex') :  writeVint(tagData.length),
-            (ebml_id, vec![])
-        },
-        ebml::MasterElement::MasterEndElement{ ebml_id } => {
-            (ebml_id, vec![])
-        },
+    let mut size_buffer = if o.unknown_size {
+        // 0b_01ff_ffff_ffff_ffff
+        vec![
+            0b_0000_0001,
+            0b_1111_1111,
+            0b_1111_1111,
+            0b_1111_1111,
+            0b_1111_1111,
+            0b_1111_1111,
+            0b_1111_1111,
+            0b_1111_1111,
+        ]
+    } else {
+        write_vint(i64::try_from(body.len())?)?
     };
-    Ok(vec![ebml_id, write_vint(i64::try_from(body.len())?), body])
-    */
+    let mut buf2 = vec![];
+    buf2.write_int::<BigEndian>(o.ebml_id.0, 1).unwrap();
+    buf2.append(&mut size_buffer);
+    buf2.append(&mut body);
+    Ok(buf2)
 }
 
 #[logfn_inputs(TRACE)]
@@ -288,12 +281,8 @@ impl From<ebml::DateElement> for Vec<u8> {
         // Date - signed 8 octets integer in nanoseconds with 0 indicating
         // the precise beginning of the millennium (at 2001-01-01T00:00:00,000000000 UTC)
         let nanos = elm.value.timestamp_nanos() + 978_307_200 * 1000 * 1000 * 1000;
-        let mut bytes: usize = 1;
-        while nanos >= i64::pow(2, 8 * u32::try_from(bytes).unwrap()) {
-            bytes += 1;
-        }
-        let mut buf = vec![0; bytes];
-        buf.write_int::<BigEndian>(nanos, bytes).unwrap();
+        let mut buf = vec![0; 8];
+        buf.write_int::<BigEndian>(nanos, 8).unwrap();
         let mut buf2 = vec![];
         buf2.write_int::<BigEndian>(elm.ebml_id.0, 1).unwrap();
         buf2.write_vint(i64::try_from(buf.len()).unwrap()).unwrap();

@@ -24,7 +24,13 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 
 [dev-dependencies]
+criterion = "0.2"
 dotenv = "0.14"
 env_logger = "0.6"
 metered = "0.2"
 metered-macro = "0.2"
+mockiato = "0.8"
+
+[[bench]]
+harness = false
+name = "benchmark"

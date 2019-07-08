@@ -228,6 +228,7 @@ impl<D: ebml::SchemaDict> Decoder<D> {
         Ok(true)
     }
     #[logfn(ok = "TRACE", err = "ERROR")]
+
     fn read_content(&mut self) -> Result<bool, DecodeError> {
         let current_pos = self.stack.last().unwrap();
         // master element は子要素を持つので生データはない

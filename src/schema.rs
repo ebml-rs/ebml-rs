@@ -1,11 +1,20 @@
 use crate::decoder::Decoder;
 use crate::ebml;
+use crate::encoder::Encoder;
 use serde::Deserialize;
 use std::collections::HashMap;
 
 const DEFAULT_SCHEMA_JSON: &str = include_str!("../schema.json");
 
 impl Default for Decoder<Dict> {
+    fn default() -> Self {
+        let schema_str = DEFAULT_SCHEMA_JSON;
+        let o = serde_json::from_str(schema_str).unwrap();
+        Self::new(o)
+    }
+}
+
+impl Default for Encoder<Dict> {
     fn default() -> Self {
         let schema_str = DEFAULT_SCHEMA_JSON;
         let o = serde_json::from_str(schema_str).unwrap();

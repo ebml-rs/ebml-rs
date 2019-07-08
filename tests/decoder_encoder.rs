@@ -12,18 +12,20 @@ const WEBM_FILE_LIST: &'static [&'static str] = &[
 ];
 
 #[test]
-fn test_decoder() {
+fn test_decoder_encoder() {
     dotenv::dotenv().ok();
     env_logger::try_init().ok();
     for path in WEBM_FILE_LIST {
         info!("start: {}", path);
         let mut decoder = ebml::Decoder::default();
+        let mut encoder = ebml::Encoder::default();
         let mut mkv = std::fs::File::open(path).unwrap();
         let mut buffer = vec![];
         use std::io::Read;
         mkv.read_to_end(&mut buffer).unwrap();
         let elms = decoder.decode(buffer).unwrap();
-        debug!("{:?}", elms);
+        let buf = encoder.encode(elms).unwrap();
+        debug!("{:?}", buf.len());
         // assert_eq!(elms.len(), 2766);
     }
 }

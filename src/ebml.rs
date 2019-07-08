@@ -30,14 +30,14 @@ pub enum ElementDetail {
 }
 
 // #[derive(Arbitrary)]
-#[derive(Derivative, Clone, PartialEq, PartialOrd, Serialize, Deserialize)]
-#[derivative(Debug)]
-pub(crate) enum Tree {
-    #[derivative(Debug = "transparent")]
-    MasterElement((MasterStartElement, Vec<Tree>)),
-    #[derivative(Debug = "transparent")]
-    ChildElement((ChildElement, Vec<u8>)),
-}
+// #[derive(Derivative, Clone, PartialEq, PartialOrd, Serialize, Deserialize)]
+// #[derivative(Debug)]
+// pub(crate) enum Tree {
+//     #[derivative(Debug = "transparent")]
+//     MasterElement((MasterStartElement, Vec<Tree>)),
+//     #[derivative(Debug = "transparent")]
+//     ChildElement((ChildElement, Vec<u8>)),
+// }
 
 #[derive(Derivative, Arbitrary, Clone, PartialEq, PartialOrd, Serialize, Deserialize)]
 #[derivative(Debug)]
@@ -219,7 +219,7 @@ impl From<ElementDetail> for Element {
         }
     }
 }
-
+/*
 impl From<(MasterStartElement, Vec<Tree>)> for Tree {
     fn from(o: (MasterStartElement, Vec<Tree>)) -> Tree {
         Tree::MasterElement(o)
@@ -231,7 +231,7 @@ impl From<(ChildElement, Vec<u8>)> for Tree {
         Tree::ChildElement(o)
     }
 }
-
+*/
 macro_rules! master_defs {
     ($ty:ident) => {
         impl From<$ty> for Element {
