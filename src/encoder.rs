@@ -1,5 +1,6 @@
 #![allow(unused_imports, dead_code)]
 use crate::ebml;
+use crate::schema::{Schema, SchemaDict};
 use crate::vint::{write_vint, UnrepresentableValueError, WriteVintExt};
 use byteorder::{BigEndian, WriteBytesExt};
 use err_derive::Error;
@@ -31,7 +32,7 @@ impl From<EncodeTagError> for EncodeError {
     }
 }
 
-pub struct Encoder<'a, D: ebml::SchemaDict<'a>> {
+pub struct Encoder<'a, D: SchemaDict<'a>> {
     schema: &'a D,
     stack: Vec<(ebml::MasterStartElement, Vec<u8>)>,
     // c
@@ -49,7 +50,7 @@ pub struct Encoder<'a, D: ebml::SchemaDict<'a>> {
     queue: Vec<u8>,
 }
 
-impl<'a, D: ebml::SchemaDict<'a>> Encoder<'a, D> {
+impl<'a, D: SchemaDict<'a>> Encoder<'a, D> {
     pub fn new(schema: &'a D) -> Self {
         Self {
             schema,
@@ -101,7 +102,6 @@ impl<'a, D: ebml::SchemaDict<'a>> Encoder<'a, D> {
             .schema
             .get(o.ebml_id)
             .ok_or_else(|| EncodeError::UnknownEbmlId(o.ebml_id))?;
-        use crate::ebml::Schema;
         let _level = schema.level();
         if o.unknown_size {
             // 不定長の場合はスタックに積まずに即時バッファに書き込む
@@ -195,6 +195,23 @@ fn encode_child_tag(elm: ebml::ChildElement) -> Result<Vec<u8>, EncodeTagError> 
     })
 }
 
+impl From<ebml::EbmlId> for Vec<u8> {
+    fn from(_ebml_id: ebml::EbmlId) -> Self {
+        /*
+        let mut buf2 = vec![];
+        buf2.write_int::<BigEndian>(elm.ebml_id.0, 1).unwrap();
+
+        const tagNums = Object.keys(this._schema).map(Number);
+        for (let i = 0; i < tagNums.length; i++) {
+        let tagNum = tagNums[i];
+        if (this._schema[tagNum].name === tagName) {
+            return new Buffer(tagNum.toString(16), 'hex');
+        }
+        }*/
+        vec![]
+    }
+}
+
 impl From<ebml::UnsignedIntegerElement> for Vec<u8> {
     fn from(elm: ebml::UnsignedIntegerElement) -> Self {
         // Big-endian, any size from 1 to 8
@@ -205,8 +222,8 @@ impl From<ebml::UnsignedIntegerElement> for Vec<u8> {
         let mut buf = vec![0; bytes];
         buf.write_uint::<BigEndian>(elm.value, bytes).unwrap();
         let mut buf2 = vec![];
-        buf2.write_int::<BigEndian>(elm.ebml_id.0, 1).unwrap();
-        buf2.write_vint(i64::try_from(buf.len()).unwrap()).unwrap();
+        buf2.append(&mut elm.ebml_id.into());
+        buf2.append(&mut write_vint(i64::try_from(buf.len()).unwrap()).unwrap());
         buf2.append(&mut buf);
         buf2
     }
@@ -222,8 +239,8 @@ impl From<ebml::IntegerElement> for Vec<u8> {
         let mut buf = vec![0; bytes];
         buf.write_int::<BigEndian>(elm.value, bytes).unwrap();
         let mut buf2 = vec![];
-        buf2.write_int::<BigEndian>(elm.ebml_id.0, 1).unwrap();
-        buf2.write_vint(i64::try_from(buf.len()).unwrap()).unwrap();
+        buf2.append(&mut elm.ebml_id.into());
+        buf2.append(&mut write_vint(i64::try_from(buf.len()).unwrap()).unwrap());
         buf2.append(&mut buf);
         buf2
     }
@@ -236,8 +253,8 @@ impl From<ebml::FloatElement> for Vec<u8> {
         let mut buf = vec![0; 8];
         buf.write_f64::<BigEndian>(elm.value).unwrap();
         let mut buf2 = vec![];
-        buf2.write_int::<BigEndian>(elm.ebml_id.0, 1).unwrap();
-        buf2.write_vint(i64::try_from(buf.len()).unwrap()).unwrap();
+        buf2.append(&mut elm.ebml_id.into());
+        buf2.append(&mut write_vint(i64::try_from(buf.len()).unwrap()).unwrap());
         buf2.append(&mut buf);
         buf2
     }
@@ -247,8 +264,8 @@ impl From<ebml::StringElement> for Vec<u8> {
     fn from(elm: ebml::StringElement) -> Self {
         let mut buf = elm.value.clone();
         let mut buf2 = vec![];
-        buf2.write_int::<BigEndian>(elm.ebml_id.0, 1).unwrap();
-        buf2.write_vint(i64::try_from(buf.len()).unwrap()).unwrap();
+        buf2.append(&mut elm.ebml_id.into());
+        buf2.append(&mut write_vint(i64::try_from(buf.len()).unwrap()).unwrap());
         buf2.append(&mut buf);
         buf2
     }
@@ -258,8 +275,8 @@ impl From<ebml::Utf8Element> for Vec<u8> {
     fn from(elm: ebml::Utf8Element) -> Self {
         let mut buf = elm.value.as_bytes().to_vec();
         let mut buf2 = vec![];
-        buf2.write_int::<BigEndian>(elm.ebml_id.0, 1).unwrap();
-        buf2.write_vint(i64::try_from(buf.len()).unwrap()).unwrap();
+        buf2.append(&mut elm.ebml_id.into());
+        buf2.append(&mut write_vint(i64::try_from(buf.len()).unwrap()).unwrap());
         buf2.append(&mut buf);
         buf2
     }
@@ -269,8 +286,8 @@ impl From<ebml::BinaryElement> for Vec<u8> {
     fn from(elm: ebml::BinaryElement) -> Self {
         let mut buf = elm.value.clone();
         let mut buf2 = vec![];
-        buf2.write_int::<BigEndian>(elm.ebml_id.0, 1).unwrap();
-        buf2.write_vint(i64::try_from(buf.len()).unwrap()).unwrap();
+        buf2.append(&mut elm.ebml_id.into());
+        buf2.append(&mut write_vint(i64::try_from(buf.len()).unwrap()).unwrap());
         buf2.append(&mut buf);
         buf2
     }
@@ -286,8 +303,8 @@ impl From<ebml::DateElement> for Vec<u8> {
         let mut buf = vec![0; 8];
         buf.write_int::<BigEndian>(nanos, 8).unwrap();
         let mut buf2 = vec![];
-        buf2.write_int::<BigEndian>(elm.ebml_id.0, 1).unwrap();
-        buf2.write_vint(i64::try_from(buf.len()).unwrap()).unwrap();
+        buf2.append(&mut elm.ebml_id.into());
+        buf2.append(&mut write_vint(i64::try_from(buf.len()).unwrap()).unwrap());
         buf2.append(&mut buf);
         buf2
     }

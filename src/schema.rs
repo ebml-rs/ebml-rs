@@ -6,7 +6,7 @@ const DEFAULT_SCHEMA_JSON: &str = include_str!("../schema.json");
 
 pub trait SchemaDict<'a> {
     type Item: Schema;
-    fn get(&'a self, ebml_id: EbmlId) -> Option<&'a Self::Item>;
+    fn get(&'a self, ebml_id: ebml::EbmlId) -> Option<&'a Self::Item>;
 }
 
 pub trait Schema {
@@ -16,17 +16,16 @@ pub trait Schema {
 }
 
 #[derive(Deserialize, Debug, Clone, PartialEq)]
-pub struct DefaultSchema(HashMap<String, Entry>);
+pub struct DefaultSchema(HashMap<String, DefaultSchemaEntry>);
 
 impl Default for DefaultSchema {
     fn default() -> Self {
         let schema_str = DEFAULT_SCHEMA_JSON;
-        let o = serde_json::from_str::<Self>(schema_str).unwrap();
-        o
+        serde_json::from_str::<Self>(schema_str).unwrap()
     }
 }
 
-impl<'a> ebml::SchemaDict<'a> for DefaultSchema {
+impl<'a> SchemaDict<'a> for DefaultSchema {
     type Item = DefaultSchemaEntry;
     fn get(&'a self, ebml_id: ebml::EbmlId) -> Option<&'a Self::Item> {
         self.0.get(&format!("{}", ebml_id)).map(Into::into)
@@ -48,7 +47,7 @@ pub struct DefaultSchemaEntry {
     pub default: Option<serde_json::Value>,
 }
 
-impl ebml::Schema for DefaultSchemaEntry {
+impl Schema for DefaultSchemaEntry {
     fn name(&self) -> &str {
         &self.name
     }

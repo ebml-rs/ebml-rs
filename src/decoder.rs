@@ -1,12 +1,14 @@
 use crate::ebml;
+use crate::schema::{Schema, SchemaDict};
 use crate::vint::{read_vint, UnrepresentableLengthError};
 use chrono::{DateTime, NaiveDateTime, Utc};
 use err_derive::Error;
 use log_derive::{logfn, logfn_inputs};
+use std::convert::TryFrom;
 
 pub trait ReadEbmlExt: std::io::Read {
     #[logfn(ok = "TRACE", err = "ERROR")]
-    fn read_ebml_to_end<'a, D: ebml::SchemaDict<'a>>(
+    fn read_ebml_to_end<'a, D: SchemaDict<'a>>(
         &mut self,
         schema: &'a D,
     ) -> Result<Vec<ebml::ElementDetail>, DecodeError> {
@@ -22,7 +24,7 @@ impl<R: std::io::Read + ?Sized> ReadEbmlExt for R {}
 
 pub trait BufReadEbmlExt: std::io::BufRead {
     #[logfn(ok = "TRACE", err = "ERROR")]
-    fn read<'a, D: ebml::SchemaDict<'a>>(
+    fn read<'a, D: SchemaDict<'a>>(
         &mut self,
         schema: &'a D,
     ) -> Result<Vec<ebml::ElementDetail>, DecodeError> {
@@ -82,7 +84,7 @@ enum State {
     Content,
 }
 
-pub struct Decoder<'a, D: ebml::SchemaDict<'a>> {
+pub struct Decoder<'a, D: SchemaDict<'a>> {
     schema: &'a D,
     state: State,
     buffer: Vec<u8>,
@@ -92,7 +94,7 @@ pub struct Decoder<'a, D: ebml::SchemaDict<'a>> {
     queue: Vec<ebml::ElementDetail>,
 }
 
-impl<'a, D: ebml::SchemaDict<'a>> Decoder<'a, D> {
+impl<'a, D: SchemaDict<'a>> Decoder<'a, D> {
     pub fn new(schema: &'a D) -> Self {
         Self {
             schema,
@@ -153,7 +155,6 @@ impl<'a, D: ebml::SchemaDict<'a>> Decoder<'a, D> {
 
         let tag_view = &self.buffer[self.cursor..(self.cursor + tag_size as usize)];
         // assert_eq!(tag_view.len(), tag_size as usize);
-        use std::convert::TryFrom;
         let ebml_id = ebml::EbmlId(
             tag_view
                 .iter()
@@ -176,7 +177,6 @@ impl<'a, D: ebml::SchemaDict<'a>> Decoder<'a, D> {
             .schema
             .get(ebml_id)
             .ok_or_else(|| DecodeError::UnknownEbmlId(ebml_id))?;
-        use crate::ebml::Schema;
         let pos = ebml::ElementPosition {
             level: schema.level(),
             r#type: schema.r#type(),
@@ -410,7 +410,6 @@ fn read_child_element<C: std::io::Read + std::fmt::Debug>(
         // Date - signed 8 octets integer in nanoseconds with 0 indicating
         // the precise beginning of the millennium (at 2001-01-01T00:00:00,000000000 UTC)
         'd' => {
-            use std::convert::TryFrom;
             let nanos = content.read_i64::<BigEndian>().map_err(Date)?;
             let unix_time_nanos: i64 = nanos - 978_307_200 * 1000 * 1000 * 1000;
             let unix_time_secs: i64 = unix_time_nanos / 1000 / 1000 / 1000 - 1;
@@ -432,6 +431,3 @@ fn read_child_element<C: std::io::Read + std::fmt::Debug>(
         )))?,
     }
 }
-
-#[cfg(test)]
-mod test {}
