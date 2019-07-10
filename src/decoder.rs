@@ -146,28 +146,14 @@ impl<'a, D: SchemaDict<'a>> Decoder<'a, D> {
             return Ok(false);
         }
         // read ebml id vint without first byte
-        let opt_tag_size = read_vint(&self.buffer, self.cursor)?;
+        let opt_tag = read_vint(&self.buffer, self.cursor)?;
+
         // cannot read tag yet
-        if opt_tag_size.is_none() {
+        if opt_tag.is_none() {
             return Ok(false);
         }
-        let tag_size = opt_tag_size.unwrap().length;
-
-        let tag_view = &self.buffer[self.cursor..(self.cursor + tag_size as usize)];
-        // assert_eq!(tag_view.len(), tag_size as usize);
-        let ebml_id = ebml::EbmlId(
-            tag_view
-                .iter()
-                .enumerate()
-                .map(|(i, v)| {
-                    i64::from(*v)
-                        * i64::pow(
-                            16_i64,
-                            2_u32 * (u32::from(tag_size) - 1 - u32::try_from(i).unwrap()),
-                        )
-                })
-                .sum(),
-        );
+        let tag_size = opt_tag.unwrap().length;
+        let ebml_id = ebml::EbmlId(opt_tag.unwrap().value);
 
         let tag_start = self.total;
         let size_start = self.total + (tag_size as usize);

@@ -72,6 +72,28 @@ fn log_2(x: u32) -> u8 {
     (num_bits::<u32>() as u32 - x.leading_zeros() - 1) as u8
 }
 
+#[test]
+fn test_log_2() {
+    dotenv::dotenv().ok();
+    env_logger::try_init().ok();
+    assert_eq!(7, log_2(255));
+    assert_eq!(7, log_2(128));
+    assert_eq!(6, log_2(127));
+    assert_eq!(6, log_2(64));
+    assert_eq!(5, log_2(63));
+    assert_eq!(5, log_2(32));
+    assert_eq!(4, log_2(31));
+    assert_eq!(4, log_2(16));
+    assert_eq!(3, log_2(15));
+    assert_eq!(3, log_2(8));
+    assert_eq!(2, log_2(7));
+    assert_eq!(2, log_2(4));
+    assert_eq!(1, log_2(3));
+    assert_eq!(1, log_2(2));
+    assert_eq!(0, log_2(1));
+    // assert_eq!(0, log_2(0)); // assertion error
+}
+
 #[derive(Debug, Error)]
 pub enum WriteVintError {
     #[error(display = "{}", _0)]

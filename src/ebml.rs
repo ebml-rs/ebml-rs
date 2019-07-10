@@ -29,16 +29,6 @@ pub enum ElementDetail {
     ChildElement((ChildElement, ElementPosition)),
 }
 
-// #[derive(Arbitrary)]
-// #[derive(Derivative, Clone, PartialEq, PartialOrd, Serialize, Deserialize)]
-// #[derivative(Debug)]
-// pub(crate) enum Tree {
-//     #[derivative(Debug = "transparent")]
-//     MasterElement((MasterStartElement, Vec<Tree>)),
-//     #[derivative(Debug = "transparent")]
-//     ChildElement((ChildElement, Vec<u8>)),
-// }
-
 #[derive(Derivative, Arbitrary, Clone, PartialEq, PartialOrd, Serialize, Deserialize)]
 #[derivative(Debug)]
 pub enum MasterElement {

@@ -196,19 +196,28 @@ fn encode_child_tag(elm: ebml::ChildElement) -> Result<Vec<u8>, EncodeTagError> 
 }
 
 impl From<ebml::EbmlId> for Vec<u8> {
-    fn from(_ebml_id: ebml::EbmlId) -> Self {
-        /*
+    #[allow(clippy::int_plus_one)] 
+    fn from(ebml_id: ebml::EbmlId) -> Self {
+        // bits, big-endian
+        // 1xxx xxxx                                  - Class A IDs (2^7 -1 possible values) (base 0x8X)
+        // 01xx xxxx  xxxx xxxx                       - Class B IDs (2^14-1 possible values) (base 0x4X 0xXX)
+        // 001x xxxx  xxxx xxxx  xxxx xxxx            - Class C IDs (2^21-1 possible values) (base 0x2X 0xXX 0xXX)
+        // 0001 xxxx  xxxx xxxx  xxxx xxxx  xxxx xxxx - Class D IDs (2^28-1 possible values) (base 0x1X 0xXX 0xXX 0xXX)
         let mut buf2 = vec![];
-        buf2.write_int::<BigEndian>(elm.ebml_id.0, 1).unwrap();
-
-        const tagNums = Object.keys(this._schema).map(Number);
-        for (let i = 0; i < tagNums.length; i++) {
-        let tagNum = tagNums[i];
-        if (this._schema[tagNum].name === tagName) {
-            return new Buffer(tagNum.toString(16), 'hex');
+        if ebml_id.0 <= i64::pow(2, 7) - 1 {
+            buf2.write_int::<BigEndian>(ebml_id.0, 1).unwrap();
+            *buf2.get_mut(0).unwrap() |= 0b_1000_0000;
+        } else if ebml_id.0 <= i64::pow(2, 14) - 1 {
+            buf2.write_int::<BigEndian>(ebml_id.0, 2).unwrap();
+            *buf2.get_mut(0).unwrap() |= 0b_0100_0000;
+        } else if ebml_id.0 <= i64::pow(2, 21) - 1 {
+            buf2.write_int::<BigEndian>(ebml_id.0, 3).unwrap();
+            *buf2.get_mut(0).unwrap() |= 0b_0010_0000;
+        } else if ebml_id.0 <= i64::pow(2, 28) - 1 {
+            buf2.write_int::<BigEndian>(ebml_id.0, 4).unwrap();
+            *buf2.get_mut(0).unwrap() |= 0b_0001_0000;
         }
-        }*/
-        vec![]
+        buf2
     }
 }
 
@@ -308,4 +317,22 @@ impl From<ebml::DateElement> for Vec<u8> {
         buf2.append(&mut buf);
         buf2
     }
+}
+
+#[test]
+fn test_tag_encoder() {
+    dotenv::dotenv().ok();
+    std::env::set_var("RUST_LOG", "trace");
+    env_logger::try_init().ok();
+
+    let schema = crate::schema::DefaultSchema::default();
+    let mut decoder = crate::decoder::Decoder::new(&schema);
+    // Name
+    let buf: Vec<u8> = ebml::Utf8Element {
+        ebml_id: 21358.into(),
+        value: "a".to_string(),
+    }
+    .into();
+    println!("{:?}", buf);
+    println!("{:?}", decoder.decode(buf));
 }

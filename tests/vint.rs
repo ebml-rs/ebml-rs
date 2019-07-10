@@ -1,7 +1,37 @@
 use ebml::vint::{read_vint, write_vint};
 
 #[test]
+fn test_ebml_id() {
+    let data = vec![
+        (0, 1),
+        (i64::pow(2, 7) - 1, 1),
+        (i64::pow(2, 7), 2),
+        (i64::pow(2, 14) - 1, 2),
+        (i64::pow(2, 14), 3),
+        (i64::pow(2, 21) - 1, 3),
+        (i64::pow(2, 21), 4),
+        (i64::pow(2, 28) - 1, 4),
+    ];
+    for (value, lenfth) in data {
+        let id: ebml::ebml::EbmlId = value.into();
+        let buf: Vec<u8> = id.into();
+        let o = ebml::vint::read_vint(&buf, 0).unwrap().unwrap();
+        assert_eq!(o.value, value);
+        assert_eq!(o.length, lenfth);
+    }
+}
+
+#[test]
 fn test_read_vint() {
+    // bits, big-endian
+    // 1xxx xxxx                                                                              - value 0 to  2^7-2
+    // 01xx xxxx  xxxx xxxx                                                                   - value 0 to 2^14-2
+    // 001x xxxx  xxxx xxxx  xxxx xxxx                                                        - value 0 to 2^21-2
+    // 0001 xxxx  xxxx xxxx  xxxx xxxx  xxxx xxxx                                             - value 0 to 2^28-2
+    // 0000 1xxx  xxxx xxxx  xxxx xxxx  xxxx xxxx  xxxx xxxx                                  - value 0 to 2^35-2
+    // 0000 01xx  xxxx xxxx  xxxx xxxx  xxxx xxxx  xxxx xxxx  xxxx xxxx                       - value 0 to 2^42-2
+    // 0000 001x  xxxx xxxx  xxxx xxxx  xxxx xxxx  xxxx xxxx  xxxx xxxx  xxxx xxxx            - value 0 to 2^49-2
+    // 0000 0001  xxxx xxxx  xxxx xxxx  xxxx xxxx  xxxx xxxx  xxxx xxxx  xxxx xxxx  xxxx xxxx - value 0 to 2^56-2
     dotenv::dotenv().ok();
     env_logger::try_init().ok();
     // should read the correct value for 1 byte int min/max values
@@ -393,28 +423,6 @@ fn test_read_vint() {
         let maybe_err = read_vint(&buf, 0);
         assert!(maybe_err.is_err());
     }
-}
-
-#[test]
-fn test_log_2() {
-    dotenv::dotenv().ok();
-    env_logger::try_init().ok();
-    assert_eq!(7, log_2(255));
-    assert_eq!(7, log_2(128));
-    assert_eq!(6, log_2(127));
-    assert_eq!(6, log_2(64));
-    assert_eq!(5, log_2(63));
-    assert_eq!(5, log_2(32));
-    assert_eq!(4, log_2(31));
-    assert_eq!(4, log_2(16));
-    assert_eq!(3, log_2(15));
-    assert_eq!(3, log_2(8));
-    assert_eq!(2, log_2(7));
-    assert_eq!(2, log_2(4));
-    assert_eq!(1, log_2(3));
-    assert_eq!(1, log_2(2));
-    assert_eq!(0, log_2(1));
-    // assert_eq!(0, log_2(0)); // assertion error
 }
 
 #[test]
